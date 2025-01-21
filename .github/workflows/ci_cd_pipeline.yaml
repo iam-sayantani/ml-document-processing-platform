@@ -1,0 +1,108 @@
+name: ML Platform Deployment
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+
+jobs:
+  setup:
+    name: Setup Environment
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v3
+
+      - name: Install Terraform
+        run: |
+          sudo apt-get update && sudo apt-get install -y unzip
+          curl -O https://releases.hashicorp.com/terraform/1.5.0/terraform_1.5.0_linux_amd64.zip
+          unzip terraform_1.5.0_linux_amd64.zip
+          sudo mv terraform /usr/local/bin/
+
+  infrastructure:
+    name: Deploy Infrastructure
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v3
+
+      - name: Set Up AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v2
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: us-east-1
+
+      - name: Initialize Terraform
+        run: |
+          cd terraform
+          terraform init
+
+      - name: Plan Infrastructure
+        run: |
+          cd terraform
+          terraform plan
+
+      - name: Apply Infrastructure
+        run: |
+          cd terraform
+          terraform apply -auto-approve
+
+  lambdas:
+    name: Deploy Lambda Functions
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v3
+
+      - name: Set Up AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v2
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: us-east-1
+
+      - name: Package Preprocessing Lambda
+        run: |
+          cd lambdas/preprocessing
+          zip -r ../preprocessing.zip .
+          aws lambda update-function-code --function-name PreprocessingFunction --zip-file fileb://../preprocessing.zip
+
+      - name: Package LLM Lambda
+        run: |
+          cd lambdas/llm_processing
+          zip -r ../llm_processing.zip .
+          aws lambda update-function-code --function-name LLMProcessingFunction --zip-file fileb://../llm_processing.zip
+
+      - name: Package Classification Lambda
+        run: |
+          cd lambdas/classification
+          zip -r ../classification.zip .
+          aws lambda update-function-code --function-name ClassificationFunction --zip-file fileb://../classification.zip
+
+  tests:
+    name: Run Tests
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v3
+
+      - name: Install Dependencies
+        run: |
+          pip install -r requirements.txt
+
+      - name: Run Unit Tests
+        run: |
+          python -m unittest discover -s tests/unit_tests
+
+      - name: Run Integration Tests
+        run: |
+          python -m unittest discover -s tests/integration
